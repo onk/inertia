@@ -449,6 +449,40 @@ describe('SSR', () => {
       const response = JSON.parse(res.end.mock.calls[0][0])
       expect(response.error).toContain('Invalid JSON in request body')
     })
+
+    it('reassembles multi-byte UTF-8 characters split across chunk boundaries', async () => {
+      mockExistsSync.mockImplementation((path: string) => path.endsWith('resources/js/ssr.ts'))
+
+      const plugin = inertia()
+      const logger = createMockLogger()
+      const server = createMockServer(logger)
+
+      let receivedPage: { component: string; props: { text: string } } | undefined
+      server.ssrLoadModule.mockResolvedValue({
+        default: vi.fn().mockImplementation((page: { component: string; props: { text: string } }) => {
+          receivedPage = page
+          return Promise.resolve({ head: [], body: '<div id="app"></div>' })
+        }),
+      })
+
+      plugin.configResolved!(createMockConfig(logger, false))
+      plugin.configureServer!(server)
+
+      const middleware = server.middlewares.use.mock.calls[0][1]
+
+      const payload = JSON.stringify({ component: 'Test', props: { text: '日本語のテスト' } })
+      const buffer = Buffer.from(payload, 'utf8')
+      // Split inside "語" (a 3-byte UTF-8 sequence) so a chunk boundary lands mid-character.
+      const splitIndex = buffer.indexOf(Buffer.from('語', 'utf8')) + 1
+      const chunks = [buffer.subarray(0, splitIndex), buffer.subarray(splitIndex)]
+
+      const req = createMockRequestFromChunks('POST', chunks)
+      const res = createMockResponse()
+
+      await middleware(req, res, vi.fn())
+
+      expect(receivedPage?.props.text).toBe('日本語のテスト')
+    })
   })
 
   describe('CSS collection', () => {
@@ -1005,6 +1039,24 @@ function createMockRequest(method: string, body: string) {
       } else if (event === 'end') {
         endCallback = callback
         setTimeout(() => endCallback(), 1)
+      }
+    }),
+  }
+}
+
+function createMockRequestFromChunks(method: string, chunks: Buffer[]) {
+  let dataCallback: (chunk: Buffer) => void
+  let endCallback: () => void
+
+  return {
+    method,
+    on: vi.fn((event: string, callback: (...args: unknown[]) => void) => {
+      if (event === 'data') {
+        dataCallback = callback
+        chunks.forEach((chunk, i) => setTimeout(() => dataCallback(chunk), i))
+      } else if (event === 'end') {
+        endCallback = callback
+        setTimeout(() => endCallback(), chunks.length + 1)
       }
     }),
   }
