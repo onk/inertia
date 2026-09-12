@@ -1,3 +1,4 @@
+import { StringDecoder } from 'node:string_decoder'
 import type { ResolvedConfig, ViteDevServer } from 'vite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import inertia from '../src'
@@ -1032,6 +1033,7 @@ function createMockRequest(method: string, body: string) {
 
   return {
     method,
+    setEncoding: vi.fn(),
     on: vi.fn((event: string, callback: (...args: unknown[]) => void) => {
       if (event === 'data') {
         dataCallback = callback
@@ -1045,15 +1047,21 @@ function createMockRequest(method: string, body: string) {
 }
 
 function createMockRequestFromChunks(method: string, chunks: Buffer[]) {
-  let dataCallback: (chunk: Buffer) => void
+  let dataCallback: (chunk: Buffer | string) => void
   let endCallback: () => void
+  // Emulate readable.setEncoding(): decode Buffers with a stateful decoder,
+  // as Node does, so multi-byte characters split across chunks stay intact.
+  let decoder: StringDecoder | undefined
 
   return {
     method,
+    setEncoding: vi.fn((encoding: BufferEncoding) => {
+      decoder = new StringDecoder(encoding)
+    }),
     on: vi.fn((event: string, callback: (...args: unknown[]) => void) => {
       if (event === 'data') {
         dataCallback = callback
-        chunks.forEach((chunk, i) => setTimeout(() => dataCallback(chunk), i))
+        chunks.forEach((chunk, i) => setTimeout(() => dataCallback(decoder ? decoder.write(chunk) : chunk), i))
       } else if (event === 'end') {
         endCallback = callback
         setTimeout(() => endCallback(), chunks.length + 1)
