@@ -167,13 +167,11 @@ async function loadRenderFunction(
 
 function readRequestBody<T>(req: IncomingMessage): Promise<T> {
   return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
+    let data = ''
 
-    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('data', (chunk) => (data += chunk))
 
     req.on('end', () => {
-      const data = Buffer.concat(chunks).toString('utf8')
-
       if (!data.trim()) {
         reject(new Error('Request body is empty'))
         return

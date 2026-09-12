@@ -1027,7 +1027,7 @@ function createMockServer(
 }
 
 function createMockRequest(method: string, body: string) {
-  let dataCallback: (chunk: Buffer) => void
+  let dataCallback: (chunk: string) => void
   let endCallback: () => void
 
   return {
@@ -1035,7 +1035,7 @@ function createMockRequest(method: string, body: string) {
     on: vi.fn((event: string, callback: (...args: unknown[]) => void) => {
       if (event === 'data') {
         dataCallback = callback
-        setTimeout(() => dataCallback(Buffer.from(body)), 0)
+        setTimeout(() => dataCallback(body), 0)
       } else if (event === 'end') {
         endCallback = callback
         setTimeout(() => endCallback(), 1)
